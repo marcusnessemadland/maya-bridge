@@ -5,6 +5,8 @@
 #include "../include/maya_bridge.h"
 #include "../include/shared_data.h"
 
+#include "shared_buffer.h"
+
 #include <bx/sharedbuffer.h>
 #include <bx/string.h>
 
