@@ -5,26 +5,16 @@
 
 #pragma once
 
-#include <windows.h>
 #include <string>
 #include <mutex>
 #include <cstring>
 
-class SharedBufferI
-{
-public:
-    virtual ~SharedBufferI() = default;
-    virtual bool init(const char* name, uint32_t size) = 0;
-    virtual void shutdown() = 0;
-    virtual bool write(const void* data, uint32_t size) = 0;
-    virtual bool read(void* data, uint32_t size) = 0;
-    virtual void* getBuffer() = 0;
-};
+#include <windows.h> // Only contains windows implementation rn
 
-class SharedBuffer : public SharedBufferI
+class SharedBuffer 
 {
 public:
-    bool init(const char* name, uint32_t size) override
+    bool init(const char* name, uint32_t size) 
     {
         m_name = std::string(name);
         m_size = size;
@@ -53,7 +43,7 @@ public:
         return true;
     }
 
-    void shutdown() override
+    void shutdown() 
     {
         if (m_buffer)
         {
@@ -68,7 +58,7 @@ public:
         }
     }
 
-    bool write(const void* data, uint32_t size) override
+    bool write(const void* data, uint32_t size) 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (size > m_size)
@@ -79,7 +69,7 @@ public:
         return true;
     }
 
-    bool read(void* data, uint32_t size) override
+    bool read(void* data, uint32_t size) 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (size > m_size)
@@ -90,7 +80,7 @@ public:
         return true;
     }
 
-    void* getBuffer() override
+    void* getBuffer() 
     {
         return m_buffer;
     }

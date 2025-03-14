@@ -5,18 +5,35 @@
 
 #pragma once
 
-#include <maya/MFnPlugin.h>
-#include <maya/MPxCommand.h>
+#include "maya-bridge/shared_buffer.h"
+#include "maya-bridge/shared_data.h"
 
-class MayaBridgePlugin : public MPxCommand 
+#include <maya/MObject.h>        
+#include <maya/MStatus.h>        
+#include <maya/MFnPlugin.h>      
+#include <maya/MCallbackIdArray.h>
+
+class MayaBridge
 {
+	void addCallbacks();
+	void removeCallbacks();
+
 public:
-    MayaBridgePlugin() = default;
-    ~MayaBridgePlugin() override = default;
+	MayaBridge();
+	~MayaBridge();
 
-    MStatus doIt(const MArgList&) override;
-    static void* creator();
+	MStatus initializePlugin(MObject _obj);
+	MStatus uninitializePlugin(MObject _obj);
+
+	void update();
+
+	void addNode(MObject _obj);
+	void addAllNodes();
+
+private:
+	SharedBuffer* m_writeBuffer;
+	SharedBuffer* m_readBuffer;
+	SharedData m_shared;
+
+	MCallbackIdArray m_callbackArray;
 };
-
-MStatus initializePlugin(MObject obj);
-MStatus uninitializePlugin(MObject obj);

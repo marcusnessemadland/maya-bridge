@@ -1,16 +1,14 @@
 # Project Info
-cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.10.2) #3.18
+project(maya_bridge)
 cmake_policy(VERSION 3.18)
-project(maya-bridge)
-enable_language(C)
-enable_language(CXX)
 
 # CMake Settings
-set(CMAKE_SUPPRESS_REGENERATION true)
-set(DCMAKE_GENERATOR_PLATFORM "x64")
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# =============================================================
 
 # Module path for FindMaya script
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules)
@@ -19,8 +17,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules)
 set(MAYA_VERSION 2024 CACHE STRING "Maya version")
 find_package(Maya REQUIRED)
 
-# Source files
-file(GLOB_RECURSE FILE_SOURCES
+# Sources
+file(GLOB_RECURSE FILE_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+    #
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/maya-bridge/*.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
 )
@@ -45,11 +45,7 @@ target_include_directories(
     ${PROJECT_NAME} 
     PRIVATE 
     Maya::Maya
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     )   
 
-# Autodesk Maya 2024 plugin setup
 MAYA_PLUGIN(${PROJECT_NAME})
-
-# Put in a "maya-bridge" folder in Visual Studio
-set_target_properties(${PROJECT_NAME} PROPERTIES FOLDER "maya-bridge ")

@@ -3,16 +3,26 @@
  * License: https://github.com/marcusnessemadland/vulkan-renderer/blob/main/LICENSE
  */
 
+#define NT_PLUGIN
+#define REQUIRE_IOSTREAM
+#define EXPORT __declspec(dllexport)
+
 #include "maya_bridge.h"
 
-#include <maya/MFnPlugin.h>
+#include <maya/MFnPlugin.h>         
+#include <maya/MGlobal.h>           
 
-MStatus initializePlugin(MObject _obj)
+static MayaBridge* s_ctx = NULL;
+
+EXPORT MStatus initializePlugin(MObject _obj)
 {
-    return ::initializePlugin(_obj);
+	s_ctx = new MayaBridge();
+	return s_ctx->initializePlugin(_obj);
 }
 
-MStatus uninitializePlugin(MObject _obj)
+EXPORT MStatus uninitializePlugin(MObject _obj)
 {
-    return ::uninitializePlugin(_obj);
+	MStatus status = s_ctx->uninitializePlugin(_obj);
+	delete s_ctx;
+	return status;
 }
