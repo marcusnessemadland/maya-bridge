@@ -1,26 +1,29 @@
+/*
+ * Copyright 2025 Marcus Nesse Madland. All rights reserved.
+ * License: https://github.com/marcusnessemadland/vulkan-renderer/blob/main/LICENSE
+ */
+
 #pragma once
 
-#include <memory> // @todo bx/uint32_t
+#include <stdint.h> // uint32_t
+
+#define MAYABRIDGE_NUM_FLOAT_PER_VERTEX (3 + 3 + 2)
+#define MAYABRIDGE_MB(x) ((x) * 1024 * 1024)
 
 ///
-#define SHARED_DATA_NUM_FLOAT_PER_VERTEX (3 + 3 + 2)
-
-#define SHARED_DATA_MB(x) ((x) * 1024 * 1024)
-
-///
-#ifndef SHARED_DATA_CONFIG_MAX_VERTICES
-	#define SHARED_DATA_CONFIG_MAX_VERTICES SHARED_DATA_MB(128) / (sizeof(float) * SHARED_DATA_NUM_FLOAT_PER_VERTEX)
+#ifndef MAYABRIDGE_CONFIG_MAX_VERTICES
+	#define MAYABRIDGE_CONFIG_MAX_VERTICES MAYABRIDGE_MB(128) / (sizeof(float) * MAYABRIDGE_NUM_FLOAT_PER_VERTEX)
 #endif
 
 ///
-#ifndef SHARED_DATA_CONFIG_MAX_INDICES
-	#define SHARED_DATA_CONFIG_MAX_INDICES SHARED_DATA_MB(128) / sizeof(uint32_t)
+#ifndef MAYABRIDGE_CONFIG_MAX_INDICES
+	#define MAYABRIDGE_CONFIG_MAX_INDICES MAYABRIDGE_MB(128) / sizeof(uint32_t)
 #endif
 
 ///
-#define SHARED_DATA_MESSAGE_NONE         UINT32_C(0x00000000)  
-#define SHARED_DATA_MESSAGE_RECEIVED     UINT32_C(0x00000001)  
-#define SHARED_DATA_MESSAGE_RELOAD_SCENE UINT32_C(0x00000002)  
+#define MAYABRIDGE_MESSAGE_NONE         UINT32_C(0x00000000)  
+#define MAYABRIDGE_MESSAGE_RECEIVED     UINT32_C(0x00000001)  
+#define MAYABRIDGE_MESSAGE_RELOAD_SCENE UINT32_C(0x00000002)  
 
 /// All data that is being updated.
 ///
@@ -41,10 +44,10 @@ struct SharedData
 		bool m_changed;
 
 		// Vertex layout: position, normal, uv
-		float m_vertices[SHARED_DATA_CONFIG_MAX_VERTICES][SHARED_DATA_NUM_FLOAT_PER_VERTEX];
+		float m_vertices[MAYABRIDGE_CONFIG_MAX_VERTICES][MAYABRIDGE_NUM_FLOAT_PER_VERTEX];
 		uint32_t m_numVertices;
 
-		uint32_t m_indices[SHARED_DATA_CONFIG_MAX_INDICES];
+		uint32_t m_indices[MAYABRIDGE_CONFIG_MAX_INDICES];
 		uint32_t m_numIndices;
 
 	} m_meshChanged;
