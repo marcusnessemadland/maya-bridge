@@ -3,134 +3,39 @@
  * License: https://github.com/marcusnessemadland/vulkan-renderer/blob/main/LICENSE
  */
 
-#include "maya_bridge.h"
+#ifndef NT_PLUGIN
+#define NT_PLUGIN
+#endif
 
-#include <maya/MGlobal.h>
-#include <maya/MMessage.h>
-#include <maya/MItDag.h>
-#include <maya/MDGMessage.h>
-#include <maya/MTimerMessage.h>
+#ifndef REQUIRE_IOSTREAM
+#define REQUIRE_IOSTREAM
+#endif
 
-#include <cassert>
+#define EXPORT __declspec(dllexport)
 
-static void callbackNodeAdded(MObject& _node, void* _clientData)
+#include "bridge.h"
+
+#include <maya/MFnPlugin.h>         
+#include <maya/MGlobal.h>           
+
+static mb::Bridge* s_ctx = NULL;
+
+EXPORT MStatus initializePlugin(MObject _obj)
 {
-	MayaBridge* bridge = (MayaBridge*)_clientData;
-	assert(bridge != NULL);
+	MStatus status = MStatus::kSuccess;
+	MFnPlugin plugin = MFnPlugin(_obj, "Maya Bridge", "2.1", "Any", &status);
 
-	bridge->addNode(_node);
-}
-
-static void callbackTimer(float _elapsedTime, float _lastTime, void* _clientData)
-{
-	MayaBridge* bridge = (MayaBridge*)_clientData;
-	assert(bridge != NULL);
-
-	bridge->update();
-}
-
-void MayaBridge::addCallbacks()
-{
-	MStatus status;
-
-	// Add timer callback
-	m_callbackArray.append(MTimerMessage::addTimerCallback(
-		0.01f,
-		callbackTimer,
-		this,
-		&status
-	));
-
-	// Add node added callback.
-	m_callbackArray.append(MDGMessage::addNodeAddedCallback(
-		callbackNodeAdded,
-		"dependNode",
-		this,
-		&status
-	));
-
-	MGlobal::displayInfo("Added plugin callbacks!");
-}
-
-void MayaBridge::removeCallbacks()
-{
-	MMessage::removeCallbacks(m_callbackArray);
-	MGlobal::displayInfo("Removed plugin callbacks!");
-}
-
-MayaBridge::MayaBridge()
-	: m_writeBuffer(NULL)
-	, m_readBuffer(NULL)
-{
-}
-
-MayaBridge::~MayaBridge()
-{
-}
-
-MStatus MayaBridge::initializePlugin(MObject _obj)
-{
-	// Create plugin
-	MStatus status = MS::kSuccess;
-	MFnPlugin plugin = MFnPlugin(_obj, "Maya Bridge | Level Editor", "2.2", "Any", &status);
-
-	// Initialize the shared memory
-	m_writeBuffer = new SharedBuffer();
-	if (!m_writeBuffer->init("maya-bridge-write", sizeof(SharedData)))
-	{
-		MGlobal::displayError("Failed to sync shared memory");
-		return status;
-	}
-
-	m_readBuffer = new SharedBuffer();
-	if (!m_readBuffer->init("maya-bridge-read", sizeof(uint32_t)))
-	{
-		MGlobal::displayError("Failed to sync shared memory");
-		return status;
-	}
-
-	// Add callbacks
-	addCallbacks();
-
-	// Add all nodes in scene.
-	addAllNodes();
+	s_ctx = new mb::Bridge();
+	status = s_ctx->initialize();
 
 	return status;
 }
 
-MStatus MayaBridge::uninitializePlugin(MObject _obj)
+EXPORT MStatus uninitializePlugin(MObject _obj)
 {
-	MStatus status = MS::kSuccess;
+	MStatus status = s_ctx->uninitialize();
+	delete s_ctx;
 
-	// Remove callbacks
-	removeCallbacks();
-
-	// Shutdown the shared memory
-	m_writeBuffer->shutdown();
-	delete m_writeBuffer;
-
-	m_readBuffer->shutdown();
-	delete m_readBuffer;
-
-	// Destroy plugin
 	MFnPlugin plugin(_obj);
 	return status;
-}
-
-void MayaBridge::update()
-{
-}
-
-void MayaBridge::addNode(MObject _obj)
-{
-}
-
-void MayaBridge::addAllNodes()
-{
-	MItDag dagIt = MItDag(MItDag::kBreadthFirst, MFn::kInvalid);
-	for (; !dagIt.isDone(); dagIt.next())
-	{
-		MObject node = dagIt.currentItem();
-		addNode(node);
-	}
 }

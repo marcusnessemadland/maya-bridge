@@ -7,78 +7,133 @@
 
 #include <stdint.h> // uint32_t
 
-#define MAYABRIDGE_NUM_FLOAT_PER_VERTEX (3 + 3 + 2)
-#define MAYABRIDGE_MB(x) ((x) * 1024 * 1024)
+///
+#ifndef MAYABRIDGE_CONFIG_MAX_MODELS
+#define MAYABRIDGE_CONFIG_MAX_MODELS 1 
+#endif // MAYABRIDGE_CONFIG_MAX_MODELS
 
 ///
-#ifndef MAYABRIDGE_CONFIG_MAX_VERTICES
-	#define MAYABRIDGE_CONFIG_MAX_VERTICES MAYABRIDGE_MB(128) / (sizeof(float) * MAYABRIDGE_NUM_FLOAT_PER_VERTEX)
-#endif
+#ifndef MAYABRIDGE_CONFIG_MAX_MESHES_PER_MODEL
+#define MAYABRIDGE_CONFIG_MAX_MESHES_PER_MODEL 3
+#endif // MAYABRIDGE_CONFIG_MAX_MESHES_PER_MODEL
 
 ///
-#ifndef MAYABRIDGE_CONFIG_MAX_INDICES
-	#define MAYABRIDGE_CONFIG_MAX_INDICES MAYABRIDGE_MB(128) / sizeof(uint32_t)
-#endif
+#ifndef MAYABRIDGE_CONFIG_MAX_VERTICES_PER_MESH
+#define MAYABRIDGE_CONFIG_MAX_VERTICES_PER_MESH 3
+#endif // MAYABRIDGE_CONFIG_MAX_VERTICES_PER_MESH
+
+///
+#ifndef MAYABRIDGE_CONFIG_MAX_INDICES_PER_MESH
+#define MAYABRIDGE_CONFIG_MAX_INDICES_PER_MESH 3
+#endif // MAYABRIDGE_CONFIG_MAX_INDICES_PER_MESH
 
 ///
 #define MAYABRIDGE_MESSAGE_NONE         UINT32_C(0x00000000)  
 #define MAYABRIDGE_MESSAGE_RECEIVED     UINT32_C(0x00000001)  
 #define MAYABRIDGE_MESSAGE_RELOAD_SCENE UINT32_C(0x00000002)  
 
-/// All data that is being updated.
-///
-struct SharedData
+namespace mb
 {
-	//
-	struct CameraUpdate
+	struct Material
 	{
-		float m_view[16];
-		float m_proj[16];
+		Material()
+			: metallicFactor(0.0f)
+			, roughnessFactor(0.0f)
+			, normalScale(0.0f)
+			, occlusionStrength(0.0f)
+		{
+			strcpy_s(baseColorTexture, "");
+			strcpy_s(metallicRoughnessTexture, "");
+			strcpy_s(normalTexture, "");
+			strcpy_s(occlusionTexture, "");
+			strcpy_s(emissiveTexture, "");
 
-	} m_camera;
+			memset(baseColorFactor, 0, sizeof(float) * 3);
+			memset(emissiveFactor, 0, sizeof(float) * 3);
+		}
 
-	struct MeshEvent
+		char baseColorTexture[256];
+		char metallicRoughnessTexture[256]; //!< .b = Metallic, .g = Roughness
+		char normalTexture[256];
+		char occlusionTexture[256];
+		char emissiveTexture[256];
+
+		float baseColorFactor[3];
+		float metallicFactor;
+		float roughnessFactor;
+		float normalScale;
+		float occlusionStrength;
+		float emissiveFactor[3];
+	};
+
+	struct Vertex
 	{
-		// @todo Change this. Transform should create entity, then create events based on children.
-		char m_name[1024]; //!< Entity name (This creates the entity.) 
-		bool m_changed;
+		float position[3];
+		float normal[3];
+		float tangent[3];
+		float bitangent[3];
+		float texcoord[2];
+		float weights[4];
+		float displacement;
+		uint8_t indices[4];
+	};
 
-		// Vertex layout: position, normal, uv
-		float m_vertices[MAYABRIDGE_CONFIG_MAX_VERTICES][MAYABRIDGE_NUM_FLOAT_PER_VERTEX];
-		uint32_t m_numVertices;
-
-		uint32_t m_indices[MAYABRIDGE_CONFIG_MAX_INDICES];
-		uint32_t m_numIndices;
-
-	} m_meshChanged;
-
-	struct MaterialEvent
+	struct Mesh
 	{
-		char m_name[1024]; //!< Entity name (This expects entity to be created.)
-		bool m_changed;
+		Mesh()
+			: numVertices(0)
+			, numIndices(0)
+		{
+		}
 
-		float m_diffuse[3];
-		char m_diffusePath[1024];
+		Material material;
 
-		float m_normal[3];
-		char m_normalPath[1024];
+		uint32_t numVertices;
+		Vertex vertices[MAYABRIDGE_CONFIG_MAX_VERTICES_PER_MESH];
 
-		float m_roughness;
-		char m_roughnessPath[1024];
+		uint32_t numIndices;
+		uint32_t indices[MAYABRIDGE_CONFIG_MAX_INDICES_PER_MESH];
+	};
 
-		float m_metallic;
-		char m_metallicPath[1024];
-
-	} m_materialChanged;
-
-	struct TransformEvent
+	struct Model
 	{
-		char m_name[1024]; //!< Entity name (This expects entity to be created.)
-		bool m_changed;
+		Model()
+			: numMeshes(0)
+		{
+			strcpy_s(name, "");
 
-		float m_pos[3];
-		float m_rotation[4];
-		float m_scale[3];
+			memset(position, 0, sizeof(float) * 3);
+			memset(rotation, 0, sizeof(float) * 4);
+			memset(scale, 0, sizeof(float) * 3);
+		}
 
-	} m_transformChanged;
-};
+		char name[256];
+
+		float position[3];
+		float rotation[4];
+		float scale[3];
+
+		uint32_t numMeshes;
+		Mesh meshes[MAYABRIDGE_CONFIG_MAX_MESHES_PER_MODEL];
+	};
+
+	/// Data that's changed every update.
+	///
+	struct SharedData
+	{
+		SharedData()
+			: numModels(0)
+		{
+		}
+
+		uint32_t numModels;
+		Model models[MAYABRIDGE_CONFIG_MAX_MODELS];
+
+		// @todo Should be camera params like pos, forward, up, fov, etc
+		float view[16];
+		float proj[16];
+	};
+
+} // namespace mb
+
+

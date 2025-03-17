@@ -18,7 +18,7 @@ set(MAYA_VERSION 2024 CACHE STRING "Maya version")
 find_package(Maya REQUIRED)
 
 # Sources
-file(GLOB_RECURSE FILE_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+file(GLOB_RECURSE SOURCE_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     #
     ${CMAKE_CURRENT_SOURCE_DIR}/include/maya-bridge/*.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
@@ -26,7 +26,7 @@ file(GLOB_RECURSE FILE_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 # Solution Filters
-foreach(source IN LISTS FILE_SOURCES)
+foreach(source IN LISTS SOURCE_FILES)
     get_filename_component(source_path "${source}" PATH)
     string(REPLACE "/" "\\" source_path_msvc "${source_path}")
     source_group("${source_path_msvc}" FILES "${source}")
@@ -36,7 +36,7 @@ endforeach()
 add_library(
     ${PROJECT_NAME} 
     SHARED 
-    ${FILE_SOURCES}
+    ${SOURCE_FILES}
     )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Maya::Maya)
@@ -49,3 +49,6 @@ target_include_directories(
     )   
 
 MAYA_PLUGIN(${PROJECT_NAME})
+
+# Put in a "maya-bridge" folder in Visual Studio
+ set_target_properties(${PROJECT_NAME} PROPERTIES FOLDER "maya-bridge ")
