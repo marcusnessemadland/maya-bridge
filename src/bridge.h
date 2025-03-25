@@ -14,6 +14,7 @@
 #include <maya/MCallbackIdArray.h>
 
 #include <queue>
+#include <vector>
 
 namespace mb
 {
@@ -27,12 +28,12 @@ namespace mb
 		void addCallbacks();
 		void removeCallbacks();
 
-		void addModel(const MObject& _obj);
-
 		void processName(Model& _model, const MObject& _obj);
 		void processTransform(Model& _model, const MObject& _obj);
 		void processMeshes(Model& _model, const MObject& _obj);
-		void processMaterial(Material& _material, const MObject& _obj);
+		MStatus processMesh(Mesh& _mesh, const MObject& _shadingGroup, const MObject& _meshObj);
+		MStatus processMaterial(Material& _material, const MObject& _shadingGroup);
+		MStatus processTexture(const MPlug& _plug, char* _outPath);
 
 	public:
 		Bridge();
@@ -42,11 +43,14 @@ namespace mb
 		MStatus uninitialize();
 
 		void update();
+		void updateCamera(const MString& _panel);
 
 		void addNode(const MObject& _obj);
 		void removeNode(const MObject& _obj);
 
 		void addAllNodes();
+
+		void save();
 
 	private:
 		SharedBuffer* m_writeBuffer;

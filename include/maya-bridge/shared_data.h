@@ -9,51 +9,63 @@
 
 ///
 #ifndef MAYABRIDGE_CONFIG_MAX_MODELS
-#define MAYABRIDGE_CONFIG_MAX_MODELS 1 
+#define MAYABRIDGE_CONFIG_MAX_MODELS 1
 #endif // MAYABRIDGE_CONFIG_MAX_MODELS
 
 ///
 #ifndef MAYABRIDGE_CONFIG_MAX_MESHES_PER_MODEL
-#define MAYABRIDGE_CONFIG_MAX_MESHES_PER_MODEL 3
+#define MAYABRIDGE_CONFIG_MAX_MESHES_PER_MODEL 10
 #endif // MAYABRIDGE_CONFIG_MAX_MESHES_PER_MODEL
 
 ///
 #ifndef MAYABRIDGE_CONFIG_MAX_VERTICES_PER_MESH
-#define MAYABRIDGE_CONFIG_MAX_VERTICES_PER_MESH 3
+#define MAYABRIDGE_CONFIG_MAX_VERTICES_PER_MESH 2000000
 #endif // MAYABRIDGE_CONFIG_MAX_VERTICES_PER_MESH
 
 ///
 #ifndef MAYABRIDGE_CONFIG_MAX_INDICES_PER_MESH
-#define MAYABRIDGE_CONFIG_MAX_INDICES_PER_MESH 3
+#define MAYABRIDGE_CONFIG_MAX_INDICES_PER_MESH 4000000
 #endif // MAYABRIDGE_CONFIG_MAX_INDICES_PER_MESH
 
 ///
-#define MAYABRIDGE_MESSAGE_NONE         UINT32_C(0x00000000)  
-#define MAYABRIDGE_MESSAGE_RECEIVED     UINT32_C(0x00000001)  
-#define MAYABRIDGE_MESSAGE_RELOAD_SCENE UINT32_C(0x00000002)  
+#define MAYABRIDGE_MESSAGE_NONE         UINT32_C(0x00010000)  
+#define MAYABRIDGE_MESSAGE_RECEIVED     UINT32_C(0x00020000)  
+#define MAYABRIDGE_MESSAGE_RELOAD_SCENE UINT32_C(0x00030000)  
+#define MAYABRIDGE_MESSAGE_SAVE_SCENE   UINT32_C(0x00040000)  
 
 namespace mb
 {
 	struct Material
 	{
 		Material()
-			: metallicFactor(0.0f)
-			, roughnessFactor(0.0f)
-			, normalScale(0.0f)
-			, occlusionStrength(0.0f)
 		{
+			reset();
+		}
+
+		void reset()
+		{
+			metallicFactor = 1.0f;
+			roughnessFactor = 1.0f;
+			normalScale = 1.0f;
+			occlusionStrength = 1.0f;
+
 			strcpy_s(baseColorTexture, "");
-			strcpy_s(metallicRoughnessTexture, "");
+			strcpy_s(metallicTexture, "");
+			strcpy_s(roughnessTexture, "");
 			strcpy_s(normalTexture, "");
 			strcpy_s(occlusionTexture, "");
 			strcpy_s(emissiveTexture, "");
 
-			memset(baseColorFactor, 0, sizeof(float) * 3);
+			baseColorFactor[0] = 1.0f;
+			baseColorFactor[1] = 1.0f;
+			baseColorFactor[2] = 1.0f;
+
 			memset(emissiveFactor, 0, sizeof(float) * 3);
 		}
 
 		char baseColorTexture[256];
-		char metallicRoughnessTexture[256]; //!< .b = Metallic, .g = Roughness
+		char metallicTexture[256];
+		char roughnessTexture[256];
 		char normalTexture[256];
 		char occlusionTexture[256];
 		char emissiveTexture[256];
@@ -81,9 +93,16 @@ namespace mb
 	struct Mesh
 	{
 		Mesh()
-			: numVertices(0)
-			, numIndices(0)
 		{
+			reset();
+		}
+
+		void reset()
+		{
+			numVertices = 0;
+			numIndices = 0;
+
+			material.reset();
 		}
 
 		Material material;
@@ -98,13 +117,24 @@ namespace mb
 	struct Model
 	{
 		Model()
-			: numMeshes(0)
 		{
+			reset();
+		}
+
+		void reset()
+		{
+			numMeshes = 0;
+
 			strcpy_s(name, "");
 
 			memset(position, 0, sizeof(float) * 3);
-			memset(rotation, 0, sizeof(float) * 4);
+			memset(rotation, 0, sizeof(float) * 3);
 			memset(scale, 0, sizeof(float) * 3);
+
+			for (auto& mesh : meshes)
+			{
+				mesh.reset();
+			}
 		}
 
 		char name[256];
@@ -117,21 +147,39 @@ namespace mb
 		Mesh meshes[MAYABRIDGE_CONFIG_MAX_MESHES_PER_MODEL];
 	};
 
+	struct Camera
+	{
+		Camera()
+		{
+		}
+
+		float view[16];
+		float proj[16];
+	};
+
 	/// Data that's changed every update.
 	///
 	struct SharedData
 	{
 		SharedData()
-			: numModels(0)
 		{
+			reset();
 		}
+
+		void reset()
+		{
+			numModels = 0;
+
+			for (auto& model : models)
+			{
+				model.reset();
+			}
+		}
+
+		Camera camera;
 
 		uint32_t numModels;
 		Model models[MAYABRIDGE_CONFIG_MAX_MODELS];
-
-		// @todo Should be camera params like pos, forward, up, fov, etc
-		float view[16];
-		float proj[16];
 	};
 
 } // namespace mb
