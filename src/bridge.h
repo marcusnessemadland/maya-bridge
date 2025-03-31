@@ -15,6 +15,7 @@
 
 #include <queue>
 #include <vector>
+#include <unordered_map>
 
 namespace mb
 {
@@ -31,9 +32,14 @@ namespace mb
 		void processName(Model& _model, const MObject& _obj);
 		void processTransform(Model& _model, const MObject& _obj);
 		void processMeshes(Model& _model, const MObject& _obj);
-		MStatus processMesh(Mesh& _mesh, const MObject& _shadingGroup, const MObject& _meshObj);
-		MStatus processMaterial(Material& _material, const MObject& _shadingGroup);
-		MStatus processTexture(const MPlug& _plug, char* _outPath);
+		void processMesh(Model& _model, MFnMesh& fnMesh);
+		void processSubMeshes(Mesh& mesh, MFnMesh& fnMesh);
+
+		void processMaterial(Material& _material, const MObject& _obj);
+		void processStandardSurface(Material& _material, MFnDependencyNode& shaderFn);
+		void processPhong(Material& _material, MFnDependencyNode& shaderFn);
+		bool processTexture(const MPlug& _plug, char* _outPath);
+		bool processTextureNormal(MFnDependencyNode& shaderFn, char* _outPath);
 
 	public:
 		Bridge();
@@ -45,10 +51,13 @@ namespace mb
 		void update();
 		void updateCamera(const MString& _panel);
 
-		void addNode(const MObject& _obj);
-		void removeNode(const MObject& _obj);
+		void addModel(const MObject& _obj);
+		void removeModel(const MObject& _obj);
+		void addAllModels();
 
-		void addAllNodes();
+		void addMaterial(const MObject& _obj);
+		void removeMaterial(const MObject& _obj);
+		void addAllMaterials();
 
 		void save();
 
@@ -59,9 +68,11 @@ namespace mb
 
 		MCallbackIdArray m_callbackArray;
 
-		std::queue<MObject> m_queueNodeAdded;
-		std::queue<MObject> m_queueNodeChanged;
-		std::queue<MObject> m_queueNodeRemoved;
+		std::queue<MObject> m_queueModelAdded;
+		std::queue<MObject> m_queueModelRemoved;
+
+		std::queue<MObject> m_queueMaterialAdded;
+		std::queue<MObject> m_queueMaterialRemoved;
 	};
 
 } // namespace mb

@@ -5,6 +5,8 @@
 
 #include "bridge.h"
 
+#include <maya/MFnDependencyNode.h>
+#include <maya/MItDependencyNodes.h>
 #include <maya/MGlobal.h>
 #include <maya/MMessage.h>
 #include <maya/MItDag.h>
@@ -31,10 +33,15 @@
 #include <maya/M3dView.h>
 #include <maya/MFnCamera.h>
 #include <maya/MFnAttribute.h>
+#include <maya/MItMeshVertex.h>
+#include <maya/MItMeshFaceVertex.h>
+#include <maya/MGlobal.h>
 
 #include <cassert>
 #include <map>
+#include <unordered_set>
 #include <unordered_map>
+#include <set>
 
 namespace mb
 {
@@ -43,7 +50,7 @@ namespace mb
 		Bridge* bridge = (Bridge*)_clientData;
 		assert(bridge != NULL);
 
-		bridge->addNode(_node);
+		bridge->addModel(_node);
 	}
 
 	static void callbackNodeRemoved(MObject& _node, void* _clientData)
@@ -51,7 +58,7 @@ namespace mb
 		Bridge* bridge = (Bridge*)_clientData;
 		assert(bridge != NULL);
 
-		bridge->removeNode(_node);
+		bridge->removeModel(_node);
 	}
 
 	static void callbackPanelPreRender(const MString& _panel, void* _clientData)
@@ -133,44 +140,45 @@ namespace mb
 	void Bridge::processName(Model& _model, const MObject& _obj)
 	{
 		MFnDagNode fnDagNode = MFnDagNode(_obj);
+
 		strcpy_s(_model.name, fnDagNode.fullPathName().asChar());
 
-		MStreamUtils::stdOutStream() << "Name: " << _model.name << " " << "\n";
+		MStreamUtils::stdOutStream() << "  Name: " << _model.name << " " << "\n";
 	}
 
 	void Bridge::processTransform(Model& _model, const MObject& _obj)
 	{
-		MFnDagNode fnDagNode = MFnDagNode(_obj);
+		MStreamUtils::stdOutStream() << "  Processing transform..." << "\n";
 
-		MDagPath path;
-		fnDagNode.getPath(path);
+		MFnTransform fnTransform(_obj);
 
-		MFnTransform transform = MFnTransform(path);
+		MDagPath dagPath;
+		MDagPath::getAPathTo(_obj, dagPath);
 
-		MVector pivot = transform.rotatePivot(MSpace::kWorld);
-		MVector translation = transform.getTranslation(MSpace::kWorld);
-		translation -= pivot; 
-		_model.position[0] = (float)translation.x;
-		_model.position[1] = (float)translation.y;
-		_model.position[2] = (float)translation.z;
+		MMatrix worldMatrix = dagPath.inclusiveMatrix();
+		MTransformationMatrix matrix(worldMatrix);
 
-		MQuaternion rotation = transform.rotateOrientation(MSpace::kWorld);
-		_model.rotation[0] = (float)rotation.w;
-		_model.rotation[1] = (float)rotation.x;
-		_model.rotation[2] = (float)rotation.y; 
-		_model.rotation[3] = (float)rotation.z;
+		// Extract translation
+		MVector translation = matrix.getTranslation(MSpace::kWorld);
+		_model.position[0] = static_cast<float>(translation.x);
+		_model.position[1] = static_cast<float>(translation.y);
+		_model.position[2] = static_cast<float>(translation.z);
 
+		// Get rotation as quaternion
+		MQuaternion rotationQuat = matrix.rotation();
+		rotationQuat = rotationQuat.inverse();
+		_model.rotation[0] =  static_cast<float>(rotationQuat.w);
+		_model.rotation[1] =  static_cast<float>(rotationQuat.x);
+		_model.rotation[2] =  static_cast<float>(rotationQuat.y);
+		_model.rotation[3] =  static_cast<float>(rotationQuat.z);
+
+		// Get scale
 		double scale[3];
-		transform.getScale(scale);
-		_model.scale[0] = (float)scale[0];
-		_model.scale[1] = (float)scale[1];
-		_model.scale[2] = (float)scale[2];
-
-		MStreamUtils::stdOutStream() << "Position: " << _model.position[0] << ", " << _model.position[1] << ", " << _model.position[2] << "\n";
-		MStreamUtils::stdOutStream() << "Rotation: " << _model.rotation[0] << ", " << _model.rotation[1] << ", " << _model.rotation[2] << "\n";
-		MStreamUtils::stdOutStream() << "Scale: " << _model.scale[0] << ", " << _model.scale[1] << ", " << _model.scale[2] << "\n";
+		matrix.getScale(scale, MSpace::kWorld);
+		_model.scale[0] =  static_cast<float>(scale[0]);
+		_model.scale[1] =  static_cast<float>(scale[1]);
+		_model.scale[2] =  static_cast<float>(scale[2]);
 	}
-
 
 	void Bridge::processMeshes(Model& _model, const MObject& _obj)
 	{
@@ -183,316 +191,235 @@ namespace mb
 			if (child.hasFn(MFn::kMesh) || child.hasFn(MFn::kMeshData) || child.hasFn(MFn::kMeshGeom))
 			{
 				MFnMesh fnMesh(child);
-
-				MObjectArray shadingGroups;
-				MIntArray faceIndices;
-				fnMesh.getConnectedShaders(0, shadingGroups, faceIndices);  
-
-				if (shadingGroups.length() == 0) 
-				{
-					continue;
-				}
-
-				MStreamUtils::stdOutStream() << "Model total face verts: " << fnMesh.numFaceVertices() << "\n";
-
-				for (uint32_t jj = 0; jj < shadingGroups.length(); ++jj) 
-				{
-					MStatus status;
-
-					uint32_t meshIdx = _model.numMeshes;
-
-					MStreamUtils::stdOutStream() << "Processing mesh: " << meshIdx << "\n";
-
-					status = processMesh(_model.meshes[meshIdx], shadingGroups[jj], child);
-					/*status = */processMaterial(_model.meshes[meshIdx].material, shadingGroups[jj]);
-
-					if (status)
-					{
-						_model.numMeshes += 1;
-					}
-				}
-			}
-		}
-
-		MStreamUtils::stdOutStream() << "Meshes: " << _model.numMeshes << "\n";
-	}
-
-	MStatus Bridge::processMesh(Mesh& _mesh, const MObject& _shadingGroup, const MObject& _meshObj)
-	{
-		MStatus status = MS::kSuccess;
-
-		MFnSet fnSet(_shadingGroup);
-		MSelectionList members;
-		fnSet.getMembers(members, true);
-
-		if (members.length() == 0)
-		{
-			return MS::kFailure;
-		}
-
-		MStreamUtils::stdOutStream() << "Members in mesh: " << members.length() << "\n";
-
-		for (uint32_t ii = 0; ii < members.length(); ++ii)
-		{
-			MDagPath meshPath;
-			MObject component;
-
-			MStatus dagStatus = members.getDagPath(ii, meshPath, component);
-			if (dagStatus != MS::kSuccess || meshPath.node() != _meshObj)
-			{
-				// Skip this face because it doesn't belong to the intended mesh
-				continue; 
-			}
-
-			if (meshPath.hasFn(MFn::kMesh) || meshPath.hasFn(MFn::kMeshData) || meshPath.hasFn(MFn::kMeshGeom))
-			{
-				MFnMesh fnMesh(meshPath);
-				MItMeshPolygon faceIter(meshPath, component);
-
-				MFloatVectorArray tangents, bitangents;
-				fnMesh.getTangents(tangents, MSpace::kWorld);
-				fnMesh.getBinormals(bitangents, MSpace::kWorld);
-
-				std::unordered_map<int, int> vertexMap; 
-
-				for (; !faceIter.isDone(); faceIter.next())
-				{
-					int numTris = 0;
-					MPointArray trianglePoints;
-					MIntArray triangleVertexIndices;
-					faceIter.numTriangles(numTris);
-					for (int t = 0; t < numTris; ++t)
-					{
-						faceIter.getTriangle(t, trianglePoints, triangleVertexIndices, MSpace::kWorld);
-
-						for (uint32_t j = 0; j < 3; ++j)  
-						{
-							int vertexIndex = triangleVertexIndices[j];
-							if (vertexMap.find(vertexIndex) == vertexMap.end())
-							{
-								Vertex vertex;
-
-								// Positions
-								MPoint point;
-								fnMesh.getPoint(vertexIndex, point, MSpace::kWorld);
-								vertex.position[0] = static_cast<float>(point.x);
-								vertex.position[1] = static_cast<float>(point.y);
-								vertex.position[2] = static_cast<float>(point.z);
-
-								// Normals
-								MVector normal;
-								fnMesh.getVertexNormal(vertexIndex, true, normal, MSpace::kWorld);
-								vertex.normal[0] = static_cast<float>(normal.x);
-								vertex.normal[1] = static_cast<float>(normal.y);
-								vertex.normal[2] = static_cast<float>(normal.z);
-
-								// Tangents and Bitangents
-								if (vertexIndex < (int)tangents.length() && vertexIndex < (int)bitangents.length())
-								{
-									vertex.tangent[0] = tangents[vertexIndex].x;
-									vertex.tangent[1] = tangents[vertexIndex].y;
-									vertex.tangent[2] = tangents[vertexIndex].z;
-
-									vertex.bitangent[0] = bitangents[vertexIndex].x;
-									vertex.bitangent[1] = bitangents[vertexIndex].y;
-									vertex.bitangent[2] = bitangents[vertexIndex].z;
-								}
-								else
-								{
-									vertex.tangent[0] = vertex.tangent[1] = vertex.tangent[2] = 0.0f;
-									vertex.bitangent[0] = vertex.bitangent[1] = vertex.bitangent[2] = 0.0f;
-								}
-
-								// Uvs
-								if (faceIter.hasUVs() && j < trianglePoints.length())
-								{
-									float2 uv = { 0.0f, 0.0f };
-
-									MStatus status = fnMesh.getUVAtPoint(
-										trianglePoints[j], 
-										uv,
-										MSpace::kWorld, 
-										NULL, 
-										faceIter.getUVIndex);
-
-									if (status == MS::kSuccess)
-									{
-										vertex.texcoord[0] = uv[0];
-										vertex.texcoord[1] = 1.0f - uv[1];
-									}
-									else
-									{
-										vertex.texcoord[0] = uv[0];
-										vertex.texcoord[1] = uv[1];
-									}
-								}
-								
-								
-								// Static properties
-								vertex.weights[0] = vertex.weights[1] = vertex.weights[2] = vertex.weights[3] = 0.0f;
-								vertex.indices[0] = vertex.indices[1] = vertex.indices[2] = vertex.indices[3] = 0;
-								vertex.displacement = 0.0f;
-
-								// Store vertex in _mesh
-								vertexMap[vertexIndex] = _mesh.numVertices;
-								_mesh.vertices[_mesh.numVertices] = vertex;
-								_mesh.numVertices += 1;
-							}
-
-							_mesh.indices[_mesh.numIndices] = vertexMap[vertexIndex];
-							_mesh.numIndices += 1;
-						}
-					}
-				}
-
-				MStreamUtils::stdOutStream() << "Mesh num vertices: " << _mesh.numVertices << "\n";
-				MStreamUtils::stdOutStream() << "Mesh num indices: " << _mesh.numIndices << "\n";
+				processMesh(_model, fnMesh);
 				break;
 			}
 		}
-
-		return status;
 	}
 
-	void printAllPlugs(const MObject& nodeObj)
+	void Bridge::processMesh(Model& _model, MFnMesh& fnMesh)
 	{
-		MFnDependencyNode depNodeFn(nodeObj);
+		MStreamUtils::stdOutStream() << "  Processing mesh..." << "\n";
+		Mesh& mesh = _model.mesh;
 
-		MStreamUtils::stdOutStream() << "Listing all plugs for node: " << depNodeFn.name() << "\n";
+		// Get positions
+		MPointArray points;
+		fnMesh.getPoints(points);
 
-		for (unsigned int i = 0; i < depNodeFn.attributeCount(); ++i)
+		// Get tangents & bitangents
+		MFloatVectorArray tangents, bitangents;
+		fnMesh.getTangents(tangents);
+		fnMesh.getBinormals(bitangents);
+
+		// Get UV sets
+		MStringArray uvSetNames;
+		fnMesh.getUVSetNames(uvSetNames);
+
+		MStreamUtils::stdOutStream() << "    Found uvsets: " << uvSetNames.length() << "\n";
+
+		// Handle vertex attributes
+		mesh.numVertices = points.length();
+		for (uint32_t i = 0; i < mesh.numVertices; ++i)
 		{
-			MObject attrObj = depNodeFn.attribute(i);
-			MFnAttribute attrFn(attrObj);
+			Vertex& vertex = mesh.vertices[i];
+			vertex.position[0] = float(points[i].x);
+			vertex.position[1] = float(points[i].y);
+			vertex.position[2] = float(points[i].z);
+			vertex.tangent[0] = tangents[i].x;
+			vertex.tangent[1] = tangents[i].y;
+			vertex.tangent[2] = tangents[i].z;
+			vertex.bitangent[0] = bitangents[i].x;
+			vertex.bitangent[1] = bitangents[i].y;
+			vertex.bitangent[2] = bitangents[i].z;
+		}
 
-			MPlug plug = depNodeFn.findPlug(attrObj, true);
-
-			MStreamUtils::stdOutStream() << "Plug: " << plug.name() << "\n";
-
-			// If the plug has connected attributes, print them
-			MPlugArray connections;
-			plug.connectedTo(connections, true, false);
-			if (connections.length() > 0)
+		// Handle per-face vertex attributes
+		MItMeshPolygon faceIter(fnMesh.object());
+		for (; !faceIter.isDone(); faceIter.next())
+		{
+			int vertexCount = faceIter.polygonVertexCount();
+			for (int i = 0; i < vertexCount; ++i)
 			{
-				for (unsigned int j = 0; j < connections.length(); j++)
-				{
-					MStreamUtils::stdOutStream() << "  -> Connected to: " << connections[j].name() << "\n";
-				}
+				int vertexIndex = faceIter.vertexIndex(i);
+
+				float2 uv;
+				faceIter.getUV(i, uv, &uvSetNames[0]);
+
+				MVector normal;
+				faceIter.getNormal(i, normal);
+				
+				Vertex& vertex = mesh.vertices[vertexIndex];
+				vertex.texcoord[0] = uv[0];
+				vertex.texcoord[1] = 1.0f - uv[1];
+				vertex.normal[0] = static_cast<float>(normal.x);
+				vertex.normal[1] = static_cast<float>(normal.y);
+				vertex.normal[2] = static_cast<float>(normal.z);
 			}
+		}
+
+		// Extract indices and materials
+		processSubMeshes(mesh, fnMesh);
+
+		//
+		MStreamUtils::stdOutStream() << "    Num Vertices: " << mesh.numVertices << "\n";
+		MStreamUtils::stdOutStream() << "    Num SubMeshes: " << mesh.numSubMeshes << "\n";
+		for (uint32_t ii = 0; ii < mesh.numSubMeshes; ++ii)
+		{
+			MStreamUtils::stdOutStream() << "      [" << ii << "] Num Indices: " <<  mesh.subMeshes[ii].numIndices << " | Material: " << mesh.subMeshes[ii].material << " \n";
 		}
 	}
 
-	MStatus Bridge::processMaterial(Material& _material, const MObject& _shadingGroup)
+	void Bridge::processSubMeshes(Mesh& mesh, MFnMesh& fnMesh)
 	{
 		MStatus status;
 
-		// Get the connected node (Standard Surface)
-		MFnDependencyNode shadingGroupFn(_shadingGroup);
-		MPlug surfaceShaderPlug = shadingGroupFn.findPlug("surfaceShader", false, &status);
-		if (status != MS::kSuccess) return status;
+		// Get polygon counts and vertices
+		MIntArray vertexCount, vertexIndices;
+		fnMesh.getVertices(vertexCount, vertexIndices);
 
-		MStreamUtils::stdOutStream() << "Found surfaceShader..." << "\n";
+		// Get material per face
+		MObjectArray shaders;
+		MIntArray faceShaderIndices;
+		fnMesh.getConnectedShaders(0, shaders, faceShaderIndices);
 
-		MPlugArray shaderConnections;
-		surfaceShaderPlug.connectedTo(shaderConnections, true, false, &status);
-		if (shaderConnections.length() == 0) return MS::kFailure;
+		std::unordered_map<int, SubMesh> subMeshMap;
+		int vertexIndexOffset = 0;
 
-		MStreamUtils::stdOutStream() << "Found connections..." << "\n";
-
-		MObject shaderNode = shaderConnections[0].node();
-		MFnDependencyNode shaderFn(shaderNode);
-
-		MString shaderType = shaderFn.typeName();
-		if (shaderType != "standardSurface") return MS::kFailure;
-
-		// Base Color
-		MPlug baseColorTexPlug = shaderFn.findPlug("baseColor", false);
-		if (processTexture(baseColorTexPlug, _material.baseColorTexture))
+		for (uint32_t faceIdx = 0; faceIdx < faceShaderIndices.length(); ++faceIdx) 
 		{
-			MStreamUtils::stdOutStream() << "Found Base Color Texture..." << "\n";
-		}
-		else
-		{
-		}
-		
-		// Normal (Bump)
-		MPlug normalPlug = shaderFn.findPlug("normalCamera", false);
-		MPlugArray normalConnections;
-		normalPlug.connectedTo(normalConnections, true, false);
-		if (normalConnections.length() > 0)
-		{
-			MObject normalNode = normalConnections[0].node();
-			MFnDependencyNode normalFn(normalNode);
-			if (normalFn.typeName() == "bump2d") // Check if it's a bump node
+			uint32_t shaderIndex = faceShaderIndices[faceIdx];
+			int faceVertexCount = vertexCount[faceIdx];
+
+			// Ensure shader index is valid
+			if (shaderIndex < 0 || shaderIndex >= shaders.length()) 
 			{
-				MPlug bumpTexPlug = normalFn.findPlug("bumpValue", false);
-				if (processTexture(bumpTexPlug, _material.normalTexture))
+				continue;
+			}
+
+			// Create or get submesh for this shader
+			if (subMeshMap.find(shaderIndex) == subMeshMap.end()) 
+			{
+				SubMesh subMesh;
+
+				MFnDependencyNode shadingGroupFn(shaders[shaderIndex]);
+
+				MStatus status;
+				MPlug surfaceShaderPlug = shadingGroupFn.findPlug("surfaceShader", false, &status);
+
+				if (status == MS::kSuccess)
 				{
-					MStreamUtils::stdOutStream() << "Found Normal Map..." << "\n";
+					MPlugArray shaderConnections;
+					surfaceShaderPlug.connectedTo(shaderConnections, true, false, &status);
+					if (shaderConnections.length() != 0)
+					{
+						MObject shaderNode = shaderConnections[0].node();
+						MFnDependencyNode shaderFn(shaderNode);
+						strcpy_s(subMesh.material, shaderFn.name().asChar());
+					}
+				}
+
+				subMeshMap[shaderIndex] = subMesh;
+			}
+			SubMesh& subMesh = subMeshMap[shaderIndex];
+
+			// Triangulate n-gon faces
+			if (faceVertexCount == 3) 
+			{
+				// Simple triangle
+				subMesh.indices[subMesh.numIndices++] = vertexIndices[vertexIndexOffset];
+				subMesh.indices[subMesh.numIndices++] = vertexIndices[vertexIndexOffset + 1];
+				subMesh.indices[subMesh.numIndices++] = vertexIndices[vertexIndexOffset + 2];
+			}
+			else if (faceVertexCount > 3) 
+			{
+				// Triangulate by fan method
+				for (int j = 1; j < faceVertexCount - 1; ++j) 
+				{
+					subMesh.indices[subMesh.numIndices++] = vertexIndices[vertexIndexOffset];
+					subMesh.indices[subMesh.numIndices++] = vertexIndices[vertexIndexOffset + j];
+					subMesh.indices[subMesh.numIndices++] = vertexIndices[vertexIndexOffset + j + 1];
 				}
 			}
-			else
-			{
-				if (processTexture(normalPlug, _material.normalTexture))
-				{
-					MStreamUtils::stdOutStream() << "Found Normal Map..." << "\n";
-				}
-			}
-		}
-		else
-		{
+
+			vertexIndexOffset += faceVertexCount;
 		}
 
-		// Roughness
-		MPlug roughnessPlug = shaderFn.findPlug("specularRoughness", false);
-		if (processTexture(roughnessPlug, _material.roughnessTexture))
+		// Copy sub-meshes to Mesh
+		for (auto& pair : subMeshMap) 
 		{
-			MStreamUtils::stdOutStream() << "Found Roughness Map..." << "\n";
+			mesh.subMeshes[mesh.numSubMeshes++] = pair.second;
 		}
-		else
-		{
-		}
-
-		// Metallic
-		MPlug metallicPlug = shaderFn.findPlug("metalness", false);
-		if (processTexture(metallicPlug, _material.metallicTexture))
-		{
-			MStreamUtils::stdOutStream() << "Found Metallic Map..." << "\n";
-		}
-		else
-		{
-		}
-
-		// Occlusion
-		MPlug occlusionPlug = shaderFn.findPlug("ao", false);
-		if (processTexture(occlusionPlug, _material.occlusionTexture))
-		{
-			MStreamUtils::stdOutStream() << "Found Occlusion Map..." << "\n";
-		}
-		else
-		{
-		}
-
-		// Emissive
-		MPlug emissivePlug = shaderFn.findPlug("emissionColor", false);
-		if (processTexture(emissivePlug, _material.emissiveTexture))
-		{
-			MStreamUtils::stdOutStream() << "Found Emissive Map..." << "\n";
-		}
-		else
-		{
-		}
-
-		//printAllPlugs(shaderNode);
-
-		return status;
 	}
 
-	MStatus Bridge::processTexture(const MPlug& _plug, char* _outPath)
+	void Bridge::processMaterial(Material& _material, const MObject& _obj)
+	{
+		MFnDependencyNode shaderFn(_obj);
+		strcpy_s(_material.name, shaderFn.name().asChar());
+
+		MStreamUtils::stdOutStream() << "  Name: " << _material.name << " \n";
+
+		if (_obj.hasFn(MFn::kStandardSurface))
+		{
+			MStreamUtils::stdOutStream() << "  Type: Standard Surface" << "\n";
+			processStandardSurface(_material, shaderFn);
+		}
+		else if (_obj.hasFn(MFn::kPhong))
+		{
+			MStreamUtils::stdOutStream() << "  Type: Phong" << "\n";
+			processPhong(_material, shaderFn);
+		}
+	}
+
+	void Bridge::processStandardSurface(Material& _material, MFnDependencyNode& shaderFn)
+	{
+		if (processTexture(shaderFn.findPlug("baseColor", false), _material.baseColorTexture))
+			MStreamUtils::stdOutStream() << "    Found Base Color Texture..." << "\n";
+
+		if (processTextureNormal(shaderFn, _material.normalTexture))
+			MStreamUtils::stdOutStream() << "    Found Normal Map..." << "\n";
+
+		if (processTexture(shaderFn.findPlug("specularRoughness", false), _material.roughnessTexture))
+			MStreamUtils::stdOutStream() << "    Found Roughness Map..." << "\n";
+
+		if (processTexture(shaderFn.findPlug("metalness", false), _material.metallicTexture))
+			MStreamUtils::stdOutStream() << "    Found Metallic Map..." << "\n";
+
+		if (processTexture(shaderFn.findPlug("ao", false), _material.occlusionTexture))
+			MStreamUtils::stdOutStream() << "    Found Occlusion Map..." << "\n";
+
+		if (processTexture(shaderFn.findPlug("emissionColor", false), _material.emissiveTexture))
+			MStreamUtils::stdOutStream() << "    Found Emissive Map..." << "\n";
+	}
+
+	void Bridge::processPhong(Material& _material, MFnDependencyNode& shaderFn)
+	{
+		if (processTexture(shaderFn.findPlug("color", false), _material.baseColorTexture))
+			MStreamUtils::stdOutStream() << "    Found Base Color Texture..." << "\n";
+
+		if (processTextureNormal(shaderFn, _material.normalTexture))
+			MStreamUtils::stdOutStream() << "    Found Normal Map..." << "\n";
+
+		if (processTexture(shaderFn.findPlug("cosinePower", false), _material.roughnessTexture))
+			MStreamUtils::stdOutStream() << "    Found Roughness Map..." << "\n";
+
+		if (processTexture(shaderFn.findPlug("specularColor", false), _material.metallicTexture))
+			MStreamUtils::stdOutStream() << "    Found Metallic Map..." << "\n";
+
+		if (processTexture(shaderFn.findPlug("ambientColor", false), _material.occlusionTexture))
+			MStreamUtils::stdOutStream() << "    Found Occlusion Map..." << "\n";
+
+		if (processTexture(shaderFn.findPlug("incandescence", false), _material.emissiveTexture))
+			MStreamUtils::stdOutStream() << "    Found Emissive Map..." << "\n";
+	}
+
+	bool Bridge::processTexture(const MPlug& _plug, char* _outPath)
 	{
 		MPlugArray textureConnections;
 		_plug.connectedTo(textureConnections, true, false);
-		if (textureConnections.length() == 0) return MStatus::kFailure;
+		if (textureConnections.length() == 0)
+		{
+			return false;
+		}
 
 		MFnDependencyNode textureNode(textureConnections[0].node());
 
@@ -502,10 +429,32 @@ namespace mb
 			MString texturePath;
 			fileTexturePlug.getValue(texturePath);
 			strcpy_s(_outPath, 256, texturePath.asChar());
-			return MStatus::kSuccess;
+			return true;
 		}
 
-		return MStatus::kFailure;
+		return false;
+	}
+
+	bool Bridge::processTextureNormal(MFnDependencyNode& shaderFn, char* _outPath)
+	{
+		MPlug normalPlug = shaderFn.findPlug("normalCamera", false);
+		MPlugArray normalConnections;
+		normalPlug.connectedTo(normalConnections, true, false);
+		if (normalConnections.length() > 0)
+		{
+			MObject normalNode = normalConnections[0].node();
+			MFnDependencyNode normalFn(normalNode);
+			if (normalFn.typeName() == "bump2d")
+			{
+				return processTexture(normalFn.findPlug("bumpValue", false), _outPath);
+			}
+			else
+			{
+				return processTexture(normalPlug, _outPath);
+			}
+		}
+
+		return false;
 	}
 
 	Bridge::Bridge()
@@ -568,38 +517,68 @@ namespace mb
 
 		if (status == MAYABRIDGE_MESSAGE_RECEIVED)
 		{
-			if (!m_queueNodeAdded.empty())
+			bool write = false;
+			
+			// Process
+			if (!m_queueMaterialAdded.empty())
 			{
-				MStreamUtils::stdOutStream() << "Adding model idx: " << m_shared.numModels << "\n";
+				MStreamUtils::stdOutStream() << "Processing material..." << "\n";
 
-				MObject& object = m_queueNodeAdded.front();
+				MObject& object = m_queueMaterialAdded.front();
+				if (!object.isNull())
+				{
+					Material& material = m_shared.materials[m_shared.numMaterials];
 
-				Model& model = m_shared.models[m_shared.numModels];
-				m_shared.numModels += 1;
+					processMaterial(material, object);
 
-				processName(model, object);
-				processTransform(model, object);
-				processMeshes(model, object);
-
-				m_queueNodeAdded.pop();
+					m_shared.numMaterials += 1;
+					m_queueMaterialAdded.pop();
+					write = true;
+				}
 			}
-
-			m_writeBuffer->write(&m_shared, sizeof(mb::SharedData));
-
-			status = MAYABRIDGE_MESSAGE_NONE;
-			m_readBuffer->write(&status, sizeof(uint32_t));
-		}
-		else 
-		{
-			m_shared.reset();
-
-			if (status == MAYABRIDGE_MESSAGE_RELOAD_SCENE)
+			else if (!m_queueModelAdded.empty())
 			{
-				addAllNodes();
+				MStreamUtils::stdOutStream() << "Processing model..." << "\n";
 
-				status = MAYABRIDGE_MESSAGE_RECEIVED;
+				MObject& object = m_queueModelAdded.front();
+				if (!object.isNull())
+				{
+					Model& model = m_shared.models[m_shared.numModels];
+
+					processName(model, object);
+					processTransform(model, object);
+					processMeshes(model, object);
+
+					m_shared.numModels += 1;
+					m_queueModelAdded.pop();
+					write = true;
+				}
+			}
+			
+			// Write
+			if (write)
+			{
+				m_writeBuffer->write(&m_shared, sizeof(mb::SharedData));
+
+				status = MAYABRIDGE_MESSAGE_NONE;
 				m_readBuffer->write(&status, sizeof(uint32_t));
 			}
+		}
+		else if (status == MAYABRIDGE_MESSAGE_RELOAD_SCENE)
+		{
+			m_shared.resetMaterials();
+			m_shared.resetModels();
+
+			addAllMaterials();
+			addAllModels();
+
+			status = MAYABRIDGE_MESSAGE_RECEIVED;
+			m_readBuffer->write(&status, sizeof(uint32_t));
+		}
+		else
+		{
+			m_shared.resetMaterials();
+			m_shared.resetModels();
 		}
 	}
 
@@ -650,7 +629,7 @@ namespace mb
 		m_writeBuffer->write(&m_shared, sizeof(mb::SharedData));
 	}
 
-	void Bridge::addNode(const MObject& _obj)
+	void Bridge::addModel(const MObject& _obj)
 	{
 		if (_obj.isNull() || !_obj.hasFn(MFn::kDagNode)) 
 		{
@@ -672,24 +651,65 @@ namespace mb
 
 		if (_obj.hasFn(MFn::kDagNode) && _obj.hasFn(MFn::kTransform) && hasMesh)
 		{
-			m_queueNodeAdded.push(_obj);
-			return;
+			m_queueModelAdded.push(_obj);
 		}
 	}
 
-	void Bridge::removeNode(const MObject& _obj)
+	void Bridge::removeModel(const MObject& _obj)
 	{
-		m_queueNodeRemoved.push(_obj);
+		m_queueModelRemoved.push(_obj);
 	}
 
-	void Bridge::addAllNodes()
+	void Bridge::addAllModels()
 	{
 		MItDag dagIt = MItDag(MItDag::kBreadthFirst, MFn::kInvalid);
 		for (; !dagIt.isDone(); dagIt.next())
 		{
 			MObject node = dagIt.currentItem();
-			addNode(node);
+			addModel(node);
 		}
+	}
+
+	void Bridge::addMaterial(const MObject& _obj)
+	{
+		m_queueMaterialAdded.push(_obj);
+	}
+
+	void Bridge::removeMaterial(const MObject& _obj)
+	{
+		m_queueMaterialRemoved.push(_obj);
+	}
+
+	void Bridge::addAllMaterials()
+	{
+		std::unordered_set<std::string> uniqueMaterials;
+		MItDependencyNodes iter(MFn::kDependencyNode); 
+
+		while (!iter.isDone())
+		{
+			MObject obj = iter.thisNode();
+
+			if (!obj.hasFn(MFn::kShadingEngine))
+			{
+				MFnDependencyNode depNode(obj);
+
+				if (obj.hasFn(MFn::kStandardSurface) || obj.hasFn(MFn::kPhong))
+				{
+					std::string materialName = depNode.name().asChar();
+
+					if (uniqueMaterials.find(materialName) == uniqueMaterials.end())
+					{
+						uniqueMaterials.insert(materialName);
+
+						addMaterial(obj); 
+					}
+				}
+			}
+
+			iter.next();
+		}
+
+		MStreamUtils::stdOutStream() << "Total Materials: " << uniqueMaterials.size() << "\n";
 	}
 
 	void Bridge::save()
