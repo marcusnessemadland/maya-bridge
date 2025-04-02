@@ -174,12 +174,6 @@ namespace mb
 
 	struct Camera
 	{
-		Camera()
-		{
-		}
-
-		float view[16];
-		float proj[16];
 	};
 
 	/// Data that's changed every update.
