@@ -1,4 +1,4 @@
-[Maya Bridge](https://github.com/marcusnessemadland/maya-bridge) - Graphics Engine Live Link plugin
+[maya-bridge](https://github.com/marcusnessemadland/maya-bridge) - Maya Live Link Plugin 
 ============================================================================
 
 <p align="center">
